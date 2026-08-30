@@ -1,76 +1,189 @@
-const summary = [
-  { name: 'Retry now', value: 32 },
-  { name: 'Retry later', value: 21 },
-  { name: 'Email outreach', value: 16 },
-  { name: 'Manual review', value: 12 },
-];
+import React, { useState, useEffect } from "react";
+import "./Dashboard.css";
 
-const auditTrail = [
-  { id: 1, timestamp: '2026-08-28 10:12', action: 'AI analyzed failed payment', result: 'retry_now recommended' },
-  { id: 2, timestamp: '2026-08-28 10:24', action: 'Customer emailed', result: 'awaiting confirmation' },
-  { id: 3, timestamp: '2026-08-28 11:03', action: 'Retry scheduled', result: 'queued for 2 hours' },
-];
+export default function Dashboard() {
+  const [analytics, setAnalytics] = useState(null);
+  const [analyses, setAnalyses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
 
-function Dashboard() {
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 5000); // Refresh every 5s
+    return () => clearInterval(interval);
+  }, []);
+
+  async function fetchData() {
+    try {
+      const analyticsRes = await fetch("http://localhost:4000/api/analytics");
+      const analyticsData = await analyticsRes.json();
+      setAnalytics(analyticsData);
+
+      const analysesRes = await fetch("http://localhost:4000/api/analyses");
+      const analysesData = await analysesRes.json();
+      setAnalyses(analysesData);
+
+      setLoading(false);
+    } catch (error) {
+      console.error("Fetch error:", error);
+    }
+  }
+
+  if (loading) return <div className="loading">Loading...</div>;
+  if (!analytics) return <div className="error">Failed to load data</div>;
+
+  // Filter analyses
+  const filtered =
+    filter === "all"
+      ? analyses
+      : analyses.filter((a) => a.agent_decision === filter);
+
   return (
-    <main className="dashboard-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Recovery dashboard</p>
-          <h1>AI Revenue Recovery Agent</h1>
-        </div>
-        <div className="chip">Live audit trail</div>
+    <div className="dashboard">
+      <header className="header">
+        <h1>🤖 AI Revenue Recovery Agent</h1>
+        <p>Real-time payment failure detection & recovery</p>
       </header>
 
-      <section className="stats-grid">
-        {summary.map((item) => (
-          <article key={item.name} className="stat-card">
-            <span>{item.name}</span>
-            <strong>{item.value}%</strong>
-          </article>
-        ))}
-      </section>
-
-      <section className="panel-grid">
-        <div className="panel">
-          <h2>Recommendation mix</h2>
-          <div className="bars" aria-label="recommendation breakdown">
-            {summary.map((item) => (
-              <div key={item.name} className="bar-row">
-                <div className="label">{item.name}</div>
-                <div className="bar-track">
-                  <div className="bar-fill" style={{ width: `${item.value}%` }} />
-                </div>
-                <div className="value">{item.value}%</div>
-              </div>
-            ))}
-          </div>
+      {/* Metrics Cards */}
+      <section className="metrics">
+        <div className="card total">
+          <div className="value">{analytics.total}</div>
+          <div className="label">Payments Analyzed</div>
         </div>
 
-        <div className="panel">
-          <h2>Audit trail</h2>
-          <table>
+        <div className="card retry">
+          <div className="value">{analytics.metrics.retry_decisions}</div>
+          <div className="label">Retried (Immediate)</div>
+        </div>
+
+        <div className="card notify">
+          <div className="value">{analytics.metrics.notification_decisions}</div>
+          <div className="label">Recovery Messages Sent</div>
+        </div>
+
+        <div className="card escalate">
+          <div className="value">{analytics.metrics.escalated_decisions}</div>
+          <div className="label">Escalated to Human</div>
+        </div>
+
+        <div className="card recovery">
+          <div className="value">{analytics.metrics.recovery_rate}</div>
+          <div className="label">Recovery Rate</div>
+        </div>
+      </section>
+
+      {/* Decision Breakdown */}
+      <section className="breakdown">
+        <h2>Agent Decisions</h2>
+        <div className="chart">
+          {Object.entries(analytics.decisions).map(([decision, count]) => (
+            <div key={decision} className="bar-container">
+              <div className="label">{decision}</div>
+              <div className="bar">
+                <div
+                  className="fill"
+                  style={{
+                    width: `${(count / analytics.total) * 100}%`
+                  }}
+                ></div>
+              </div>
+              <div className="count">{count}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Audit Trail */}
+      <section className="audit-trail">
+        <h2>Audit Trail - Payment Analysis Log</h2>
+
+        {/* Filter Buttons */}
+        <div className="filters">
+          <button
+            className={`filter-btn ${filter === "all" ? "active" : ""}`}
+            onClick={() => setFilter("all")}
+          >
+            All ({analyses.length})
+          </button>
+          <button
+            className={`filter-btn ${filter === "retry_now" ? "active" : ""}`}
+            onClick={() => setFilter("retry_now")}
+          >
+            Retry Now
+          </button>
+          <button
+            className={`filter-btn ${filter === "retry_after" ? "active" : ""}`}
+            onClick={() => setFilter("retry_after")}
+          >
+            Retry Later
+          </button>
+          <button
+            className={`filter-btn ${filter === "send_recovery_message" ? "active" : ""}`}
+            onClick={() => setFilter("send_recovery_message")}
+          >
+            Send Message
+          </button>
+          <button
+            className={`filter-btn ${filter === "escalate_to_human" ? "active" : ""}`}
+            onClick={() => setFilter("escalate_to_human")}
+          >
+            Escalate
+          </button>
+        </div>
+
+        {/* Table */}
+        <div className="table-container">
+          <table className="audit-table">
             <thead>
               <tr>
-                <th>Time</th>
-                <th>Action</th>
-                <th>Result</th>
+                <th>Payment ID</th>
+                <th>Agent Decision</th>
+                <th>Action Status</th>
+                <th>Details</th>
+                <th>Timestamp</th>
               </tr>
             </thead>
             <tbody>
-              {auditTrail.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.timestamp}</td>
-                  <td>{row.action}</td>
-                  <td>{row.result}</td>
+              {filtered.map((analysis) => (
+                <tr key={analysis.id} className={`status-${analysis.action_result?.status}`}>
+                  <td className="payment-id">{analysis.payment_id}</td>
+                  <td className="decision">
+                    <span className={`badge ${analysis.agent_decision}`}>
+                      {analysis.agent_decision.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="status">
+                    <span className={`status-badge ${analysis.action_result?.status}`}>
+                      {analysis.action_result?.status || "pending"}
+                    </span>
+                  </td>
+                  <td className="details">
+                    {analysis.action_result?.reason ||
+                      analysis.action_result?.message ||
+                      "-"}
+                  </td>
+                  <td className="timestamp">
+                    {new Date(analysis.created_at).toLocaleTimeString()}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        <div className="summary">
+          Showing {filtered.length} of {analyses.length} analyses
+        </div>
       </section>
-    </main>
+
+      {/* Footer */}
+      <footer className="footer">
+        <p>
+          💡 This agent demonstrates real-time payment recovery using intelligent decision
+          logic and customer-first approach.
+        </p>
+      </footer>
+    </div>
   );
 }
-
-export default Dashboard;
