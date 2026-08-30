@@ -1,94 +1,123 @@
-import Anthropic from '@anthropic-ai/sdk';
+import dotenv from "dotenv";
+dotenv.config();
 
-const anthropic = process.env.ANTHROPIC_API_KEY
-  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  : null;
+import Groq from "groq-sdk";
+import { executeTool } from "./tools.js";
 
-export function buildSystemPrompt() {
-  return `You are an AI revenue recovery assistant for a payments team.
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY
+});
 
-Your job is to evaluate failed payment scenarios and decide the best next step.
-Focus on maximizing recovery while minimizing customer friction.
+export async function analyzePayment(paymentData) {
+  // Simple decision logic WITHOUT relying on Claude parsing
+  const decision = makeDecision(paymentData);
 
-Use the available tools when appropriate:
-- retry_now for immediate retry when the customer is likely to succeed.
-- retry_after for temporary issuer or network issues.
-- send_email for customer outreach and clarity.
-- offer_discount for repeat failures or low-risk churn risk.
-- escalate_to_support for fraud, manual review, or exceptional cases.
-
-Return a compact JSON object with:
-{
-  status: 'recommended' | 'manual_review',
-  summary: string,
-  recommendedAction: 'retry_now' | 'retry_after' | 'send_email' | 'offer_discount' | 'escalate_to_support',
-  confidence: number,
-  rationale: string,
-  nextStep: string
+  return {
+    paymentId: paymentData.id,
+    agentDecision: decision.action,
+    agentReasoning: decision.reasoning,
+    actionResult: await executeTool(decision.action, decision.params, paymentData)
+  };
 }
 
-Do not make up a payment ID if the scenario does not include one.`;
-}
+// Deterministic decision logic (no LLM needed for MVP)
+function makeDecision(paymentData) {
+  const { failureReason, customerTier, retryAttempts, checkoutAbandoned } = paymentData;
 
-export async function analyzeFailedPayment(scenario, tools = []) {
-  if (!anthropic) {
+  // Max retries rule
+  if (retryAttempts >= 3) {
     return {
-      status: 'manual_review',
-      summary: 'Anthropic API is not configured. The system is running in fallback mode.',
-      recommendedAction: 'send_email',
-      confidence: 0.72,
-      rationale: 'The scenario needs a human review since the AI model key is not configured yet.',
-      nextStep: 'Add the Anthropic API key to backend/.env and rerun the analysis.'
+      action: "escalate_to_human",
+      params: { reason: "Max retries reached" },
+      reasoning: "Customer has been retried 3+ times. Escalating to manual review."
     };
   }
 
-  try {
-    const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 700,
-      system: buildSystemPrompt(),
-      messages: [
-        {
-          role: 'user',
-          content: JSON.stringify({ scenario, availableTools: tools }, null, 2)
-        }
-      ],
-      tools: tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.inputSchema
-      }))
-    });
-
-    const textBlock = response.content.find((block) => block.type === 'text');
-    const toolUse = response.content.find((block) => block.type === 'tool_use');
-
-    if (toolUse) {
-      return {
-        status: 'recommended',
-        summary: 'The agent selected a tool-driven recovery flow.',
-        recommendedAction: toolUse.name,
-        confidence: 0.9,
-        rationale: 'The agent selected a structured tool action based on the failure details.',
-        nextStep: `Execute ${toolUse.name} with the scenario context.`,
-        toolCall: toolUse.input
-      };
-    }
-
-    if (textBlock && textBlock.text) {
-      const parsed = JSON.parse(textBlock.text);
-      return parsed;
-    }
-
-    throw new Error('Anthropic returned no usable content.');
-  } catch (error) {
+  // Checkout abandoned - send message first
+  if (checkoutAbandoned) {
     return {
-      status: 'manual_review',
-      summary: 'The AI recommendation failed, so the scenario was passed to manual review.',
-      recommendedAction: 'escalate_to_support',
-      confidence: 0.6,
-      rationale: error.message || 'Unknown AI model error.',
-      nextStep: 'Check the Anthropic API key, model access, and the failure payload.'
+      action: "send_recovery_message",
+      params: {
+        channel: paymentData.bestChannel,
+        message: "Hey! Did you forget something? Complete your checkout now with 1-click.",
+        language: "English"
+      },
+      reasoning: "Customer abandoned checkout. Sending recovery message via preferred channel."
     };
   }
+
+  // Fraud block - escalate
+  if (failureReason === "fraud_block") {
+    return {
+      action: "escalate_to_human",
+      params: { reason: "Fraud block detected. Customer verification needed." },
+      reasoning: "Fraud block requires customer verification. Escalating."
+    };
+  }
+
+  // Timeout - retry immediately
+  if (failureReason === "timeout" || failureReason === "network_error") {
+    return {
+      action: "retry_now",
+      params: { reason: "Temporary network issue. Safe to retry immediately." },
+      reasoning: "Network timeout detected. Retrying immediately is safe."
+    };
+  }
+
+  // Insufficient funds - wait and retry
+  if (failureReason === "insufficient_funds") {
+    return {
+      action: "retry_after",
+      params: {
+        hours: 24,
+        reason: "Give customer time to add funds."
+      },
+      reasoning: "Insufficient funds. Waiting 24 hours gives customer time to top up account."
+    };
+  }
+
+  // Card declined - send message then retry
+  if (failureReason === "card_declined") {
+    return {
+      action: "send_recovery_message",
+      params: {
+        channel: paymentData.bestChannel,
+        message: "Your card was declined. Try another payment method or contact your bank.",
+        language: "English"
+      },
+      reasoning: "Card declined. Notifying customer to use different card."
+    };
+  }
+
+  // Expired card - escalate
+  if (failureReason === "expired_card") {
+    return {
+      action: "escalate_to_human",
+      params: { reason: "Card expired. Customer action required." },
+      reasoning: "Expired card requires customer to update payment method."
+    };
+  }
+
+  // Customer exit - send recovery
+  if (failureReason === "customer_exit") {
+    return {
+      action: "send_recovery_message",
+      params: {
+        channel: paymentData.bestChannel,
+        message: "Your payment is still pending. Complete it now to avoid order delay.",
+        language: "English"
+      },
+      reasoning: "Customer exited. Sending friendly reminder to complete payment."
+    };
+  }
+
+  // Default: retry after 24 hours
+  return {
+    action: "retry_after",
+    params: {
+      hours: 24,
+      reason: "Standard retry protocol."
+    },
+    reasoning: `Unknown failure reason: ${failureReason}. Scheduling standard retry.`
+  };
 }
