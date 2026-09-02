@@ -6,6 +6,7 @@ import cors from "cors";
 import { analyzePayment } from "./agent.js";
 import { initializeDB, storePaymentAnalysis, getAllAnalyses, getAnalytics } from "./db.js";
 import { generateScenarios } from "./data/scenarios.js";
+import { getComparisonMetrics, getFeedbackLoopMetrics } from "./routes/comparison.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -136,6 +137,28 @@ app.post("/api/clear", async (req, res) => {
     const { data, error } = await db.from("payment_analyses").delete().neq("id", 0);
     if (error) throw error;
     res.json({ message: "All data cleared" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get comparison: dumb bot vs smart agent
+app.get("/api/comparison", async (req, res) => {
+  try {
+    const analyses = await getAllAnalyses();
+    const comparison = getComparisonMetrics(analyses);
+    res.json(comparison);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get customer feedback loop data
+app.get("/api/feedback-loop", async (req, res) => {
+  try {
+    const analyses = await getAllAnalyses();
+    const feedback = getFeedbackLoopMetrics(analyses);
+    res.json(feedback);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

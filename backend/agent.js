@@ -8,8 +8,42 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
+function getHinglishMessage(failureReason, language = "English") {
+  const messages = {
+    insufficient_funds: {
+      English: "Your payment couldn't go through. Please add funds and try again.",
+      Hinglish: "Aapka payment fail ho gaya. Kripaya account mein funds add karke dobara try karein."
+    },
+    card_declined: {
+      English: "Your card was declined. Try another payment method.",
+      Hinglish: "Aapka card decline ho gaya. Doosra payment method try karein."
+    },
+    timeout: {
+      English: "Network issue. We're retrying your payment now.",
+      Hinglish: "Network problem tha. Ab hum aapka payment retry kar rahe hain."
+    },
+    fraud_block: {
+      English: "Your bank blocked this payment for security. Please contact your bank.",
+      Hinglish: "Aapke bank ne security ke liye payment block kar diya. Bank se contact karein."
+    },
+    customer_exit: {
+      English: "Did you forget? Complete your checkout now!",
+      Hinglish: "Bhool gaye? Ab checkout complete karein aur order place karein!"
+    },
+    expired_card: {
+      English: "Your card has expired. Please update your payment method.",
+      Hinglish: "Aapka card expire ho gaya. Naya payment method add karein."
+    },
+    network_error: {
+      English: "Network glitch. Retrying in a moment...",
+      Hinglish: "Network mein ek chhoti problem thi. Ab dobara try kar rahe hain..."
+    }
+  };
+
+  return messages[failureReason]?.[language] || messages[failureReason]?.["English"] || "Payment issue. Please retry.";
+}
+
 export async function analyzePayment(paymentData) {
-  // Simple decision logic WITHOUT relying on Claude parsing
   const decision = makeDecision(paymentData);
 
   return {
@@ -20,9 +54,11 @@ export async function analyzePayment(paymentData) {
   };
 }
 
-// Deterministic decision logic (no LLM needed for MVP)
 function makeDecision(paymentData) {
   const { failureReason, customerTier, retryAttempts, checkoutAbandoned } = paymentData;
+
+  // Determine language preference
+  const language = customerTier === "gold" ? "Hinglish" : "English";
 
   // Max retries rule
   if (retryAttempts >= 3) {
@@ -39,8 +75,8 @@ function makeDecision(paymentData) {
       action: "send_recovery_message",
       params: {
         channel: paymentData.bestChannel,
-        message: "Hey! Did you forget something? Complete your checkout now with 1-click.",
-        language: "English"
+        message: getHinglishMessage("customer_exit", language),
+        language: language
       },
       reasoning: "Customer abandoned checkout. Sending recovery message via preferred channel."
     };
@@ -82,8 +118,8 @@ function makeDecision(paymentData) {
       action: "send_recovery_message",
       params: {
         channel: paymentData.bestChannel,
-        message: "Your card was declined. Try another payment method or contact your bank.",
-        language: "English"
+        message: getHinglishMessage("card_declined", language),
+        language: language
       },
       reasoning: "Card declined. Notifying customer to use different card."
     };
@@ -104,8 +140,8 @@ function makeDecision(paymentData) {
       action: "send_recovery_message",
       params: {
         channel: paymentData.bestChannel,
-        message: "Your payment is still pending. Complete it now to avoid order delay.",
-        language: "English"
+        message: getHinglishMessage("customer_exit", language),
+        language: language
       },
       reasoning: "Customer exited. Sending friendly reminder to complete payment."
     };

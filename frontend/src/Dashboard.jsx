@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import "./Dashboard.css";
+import Comparison from "./Comparison";
 
 export default function Dashboard() {
   const [analytics, setAnalytics] = useState(null);
@@ -184,6 +185,7 @@ export default function Dashboard() {
           logic and customer-first approach.
         </p>
       </footer>
+      <Comparison />
     </div>
   );
 }
