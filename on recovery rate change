@@ -1,0 +1,222 @@
+[1mdiff --git a/backend/routes/comparison.js b/backend/routes/comparison.js[m
+[1mindex 277cde7..388dfa1 100644[m
+[1m--- a/backend/routes/comparison.js[m
+[1m+++ b/backend/routes/comparison.js[m
+[36m@@ -1,211 +1,114 @@[m
+[31m-```javascript[m
+ export function getComparisonMetrics(analyses) {[m
+[31m-[m
+   // Dumb bot: retry everything[m
+[31m-[m
+   const dumbBotRetries = analyses.length;[m
+[31m-[m
+   const dumbBotSuccessRate = 0.35; // Assume 35% success on dumb retries[m
+[31m-[m
+   const dumbBotRecovered = Math.floor(dumbBotRetries * dumbBotSuccessRate);[m
+ [m
+   // Smart agent: actual results[m
+[31m-[m
+   const smartRetries = analyses.filter([m
+[31m-[m
+     (a) => a.agent_decision === "retry_now" || a.agent_decision === "retry_after"[m
+[31m-[m
+   ).length;[m
+[31m-[m
+   const smartMessages = analyses.filter((a) => a.agent_decision === "send_recovery_message").length;[m
+[31m-[m
+   const smartEscalated = analyses.filter((a) => a.agent_decision === "escalate_to_human").length;[m
+ [m
+[31m-  // Assume: retries have 45% success, messages have 35% success, escalations have 25% success[m
+[31m-[m
+[32m+[m[32m  // Assume: retries have 35% success, messages have 25% success, escalations have 15% success[m
+   const smartRecovered = Math.floor([m
+[31m-    smartRetries * 0.45 +          // Smart retries: 45% success[m
+[31m-    smartMessages * 0.35 +         // Messages: 35% success[m
+[31m-    smartEscalated * 0.25          // Escalations: 25% success[m
+[32m+[m[32m    smartRetries * 0.35 + smartMessages * 0.25 + smartEscalated * 0.15[m
+   );[m
+ [m
+   return {[m
+[31m-[m
+     dumb_bot: {[m
+[31m-[m
+       name: "Dumb Bot (Retry Everything)",[m
+[31m-[m
+       total_attempts: dumbBotRetries,[m
+[31m-[m
+       strategy: "Retry all failed payments immediately",[m
+[31m-[m
+       estimated_recovered: dumbBotRecovered,[m
+[31m-[m
+       recovery_rate: ((dumbBotRecovered / dumbBotRetries) * 100).toFixed(2) + "%",[m
+[31m-[m
+       pros: ["Simple logic", "Fast execution"],[m
+[31m-[m
+       cons: ["Annoys customers with retries", "Doesn't handle fraud blocks", "No compliance"],[m
+[31m-[m
+       false_positives: "High - retries fraud blocks"[m
+[31m-[m
+     },[m
+[31m-[m
+     smart_agent: {[m
+[31m-[m
+       name: "Your Smart Agent (Decision-Based)",[m
+[31m-[m
+       total_attempts: analyses.length,[m
+[31m-[m
+       strategy: "Intelligent routing based on failure reason",[m
+[31m-[m
+       estimated_recovered: smartRecovered,[m
+[31m-[m
+       recovery_rate: ((smartRecovered / analyses.length) * 100).toFixed(2) + "%",[m
+[31m-[m
+       pros: [[m
+[31m-[m
+         "Respects regulatory limits",[m
+[31m-[m
+         "Personalized per customer",[m
+[31m-[m
+         "Handles fraud safely",[m
+[31m-[m
+         "Tracks customer feedback"[m
+[31m-[m
+       ],[m
+[31m-[m
+       cons: ["Slightly slower", "Requires more logic"],[m
+[31m-[m
+       false_positives: "Low - safeguards in place"[m
+[31m-[m
+     },[m
+[31m-[m
+     improvement: {[m
+[31m-[m
+       recovery_delta: smartRecovered - dumbBotRecovered,[m
+[31m-[m
+       recovery_delta_pct: ([m
+[31m-[m
+         ((smartRecovered - dumbBotRecovered) / dumbBotRecovered) *[m
+[31m-[m
+         100[m
+[31m-[m
+       ).toFixed(2),[m
+[31m-[m
+       customer_satisfaction_improvement: "Higher - respects preferences"[m
+[31m-[m
+     }[m
+[31m-[m
+   };[m
+[31m-[m
+ }[m
+ [m
+ export function getFeedbackLoopMetrics(analyses) {[m
+[31m-[m
+   // Simulate customer feedback based on message type[m
+[31m-[m
+   const smsMessages = analyses.filter((a) => [m
+[31m-[m
+     a.action_result?.channel === "SMS" && a.agent_decision === "send_recovery_message"[m
+[31m-[m
+   ).length;[m
+[31m-[m
+[32m+[m[41m  [m
+   const emailMessages = analyses.filter((a) => [m
+[31m-[m
+     a.action_result?.channel === "Email" && a.agent_decision === "send_recovery_message"[m
+[31m-[m
+   ).length;[m
+[31m-[m
+[32m+[m[41m  [m
+   const inAppMessages = analyses.filter((a) => [m
+[31m-[m
+     a.action_result?.channel === "In-app" && a.agent_decision === "send_recovery_message"[m
+[31m-[m
+   ).length;[m
+ [m
+   const smsOptIn = Math.floor(smsMessages * 0.65);[m
+[31m-[m
+   const emailOptIn = Math.floor(emailMessages * 0.45);[m
+[31m-[m
+   const inAppOptIn = Math.floor(inAppMessages * 0.72);[m
+ [m
+   const smsRecovery = Math.floor(smsOptIn * 0.40);[m
+[31m-[m
+   const emailRecovery = Math.floor(emailOptIn * 0.25);[m
+[31m-[m
+   const inAppRecovery = Math.floor(inAppOptIn * 0.50);[m
+ [m
+   return {[m
+[31m-[m
+     channels: {[m
+[31m-[m
+       sms: {[m
+[31m-[m
+         messages_sent: smsMessages,[m
+[31m-[m
+         opt_in_rate: smsMessages > 0 ? ((smsOptIn / smsMessages) * 100).toFixed(2) + "%" : "0%",[m
+[31m-[m
+         opt_ins: smsOptIn,[m
+[31m-[m
+         recovery_count: smsRecovery,[m
+[31m-[m
+         recovery_rate: smsMessages > 0 ? ((smsRecovery / smsMessages) * 100).toFixed(2) + "%" : "0%",[m
+[31m-[m
+         recommendation: "BEST - Highest opt-in & recovery rates"[m
+[31m-[m
+       },[m
+[31m-[m
+       email: {[m
+[31m-[m
+         messages_sent: emailMessages,[m
+[31m-[m
+         opt_in_rate: emailMessages > 0 ? ((emailOptIn / emailMessages) * 100).toFixed(2) + "%" : "0%",[m
+[31m-[m
+         opt_ins: emailOptIn,[m
+[31m-[m
+         recovery_count: emailRecovery,[m
+[31m-[m
+         recovery_rate: emailMessages > 0 ? ((emailRecovery / emailMessages) * 100).toFixed(2) + "%" : "0%",[m
+[31m-[m
+         recommendation: "MODERATE - Lower response rates"[m
+[31m-[m
+       },[m
+[31m-[m
+       in_app: {[m
+[31m-[m
+         messages_sent: inAppMessages,[m
+[31m-[m
+         opt_in_rate: inAppMessages > 0 ? ((inAppOptIn / inAppMessages) * 100).toFixed(2) + "%" : "0%",[m
+[31m-[m
+         opt_ins: inAppOptIn,[m
+[31m-[m
+         recovery_count: inAppRecovery,[m
+[31m-[m
+         recovery_rate: inAppMessages > 0 ? ((inAppRecovery / inAppMessages) * 100).toFixed(2) + "%" : "0%",[m
+[31m-[m
+         recommendation: "GOOD - High recovery when shown"[m
+[31m-[m
+       }[m
+[31m-[m
+     },[m
+[31m-[m
+     best_channel: "SMS",[m
+[31m-[m
+     total_messages_sent: smsMessages + emailMessages + inAppMessages,[m
+[31m-[m
+     total_opt_ins: smsOptIn + emailOptIn + inAppOptIn,[m
+[31m-[m
+     total_recoveries: smsRecovery + emailRecovery + inAppRecovery,[m
+[31m-[m
+     overall_opt_in_rate: ([m
+[31m-[m
+       ((smsOptIn + emailOptIn + inAppOptIn) / (smsMessages + emailMessages + inAppMessages)) *[m
+[31m-[m
+       100[m
+[31m-[m
+     ).toFixed(2) + "%"[m
+[31m-[m
+   };[m
+[31m-[m
+[31m-}[m
+[31m-```[m
+[32m+[m[32m}[m
+\ No newline at end of file[m
