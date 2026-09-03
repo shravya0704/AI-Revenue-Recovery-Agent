@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
 import "./Dashboard.css";
 import Comparison from "./Comparison";
+import TestPlayground from "./TestPlayground";
 
-export default function Dashboard() {
+export default function Dashboard({ hideComparison = false }) {
   const [analytics, setAnalytics] = useState(null);
   const [analyses, setAnalyses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +47,8 @@ export default function Dashboard() {
         <p>Real-time payment failure detection & recovery</p>
       </header>
 
+      <TestPlayground />
+
       {/* Metrics Cards */}
       <section className="metrics">
         <div className="card total">
@@ -73,6 +76,9 @@ export default function Dashboard() {
           <div className="label">Recovery Rate</div>
         </div>
       </section>
+
+      {/* Comparison */}
+      {!hideComparison && <Comparison />}
 
       {/* Decision Breakdown */}
       <section className="breakdown">
@@ -185,7 +191,6 @@ export default function Dashboard() {
           logic and customer-first approach.
         </p>
       </footer>
-      <Comparison />
     </div>
   );
 }

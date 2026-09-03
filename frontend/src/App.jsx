@@ -1,5 +1,5 @@
-import Dashboard from "./Dashboard";
+import Tabs from "./Tabs";
 
 export default function App() {
-  return <Dashboard />;
+  return <Tabs />;
 }
