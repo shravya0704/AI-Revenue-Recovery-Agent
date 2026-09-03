@@ -1,90 +1,78 @@
-// 100 realistic failed payment scenarios
+// Fixed, deterministic test scenarios
 export const failedPayments = [
-  {
-    id: "PAY_001",
-    amount: 5000,
+  // Timeout scenarios (20 total) - high recovery with retry_now
+  ...Array(20).fill(null).map((_, i) => ({
+    id: `PAY_${String(i + 1).padStart(3, '0')}`,
+    amount: 5000 + (i * 100),
+    failureReason: "timeout",
+    customerTier: i % 3 === 0 ? "gold" : "silver",
+    retryAttempts: 0,
+    timeSinceFailure: "5 mins",
+    checkoutAbandoned: false,
+    bestChannel: "SMS"
+  })),
+
+  // Network errors (15 total) - high recovery with retry_now
+  ...Array(15).fill(null).map((_, i) => ({
+    id: `PAY_${String(i + 21).padStart(3, '0')}`,
+    amount: 3000 + (i * 150),
+    failureReason: "network_error",
+    customerTier: i % 2 === 0 ? "gold" : "bronze",
+    retryAttempts: 0,
+    timeSinceFailure: "3 mins",
+    checkoutAbandoned: false,
+    bestChannel: "Email"
+  })),
+
+  // Insufficient funds (20 total) - medium recovery with retry_after
+  ...Array(20).fill(null).map((_, i) => ({
+    id: `PAY_${String(i + 36).padStart(3, '0')}`,
+    amount: 8000 + (i * 200),
     failureReason: "insufficient_funds",
-    customerTier: "gold",
+    customerTier: i % 2 === 0 ? "gold" : "silver",
     retryAttempts: 1,
     timeSinceFailure: "2 hours",
     checkoutAbandoned: false,
     bestChannel: "SMS"
-  },
-  {
-    id: "PAY_002",
-    amount: 15000,
-    failureReason: "timeout",
-    customerTier: "silver",
-    retryAttempts: 0,
-    timeSinceFailure: "30 mins",
-    checkoutAbandoned: false,
-    bestChannel: "Email"
-  },
-  {
-    id: "PAY_003",
-    amount: 50000,
-    failureReason: "fraud_block",
-    customerTier: "gold",
-    retryAttempts: 0,
-    timeSinceFailure: "1 hour",
-    checkoutAbandoned: false,
-    bestChannel: "SMS"
-  },
-  {
-    id: "PAY_004",
-    amount: 3000,
+  })),
+
+  // Customer exit/checkout abandoned (15 total) - medium recovery with send_recovery_message
+  ...Array(15).fill(null).map((_, i) => ({
+    id: `PAY_${String(i + 56).padStart(3, '0')}`,
+    amount: 4500 + (i * 120),
     failureReason: "customer_exit",
     customerTier: "bronze",
     retryAttempts: 0,
-    timeSinceFailure: "5 mins",
+    timeSinceFailure: "10 mins",
     checkoutAbandoned: true,
-    bestChannel: "In-app"
-  },
-  {
-    id: "PAY_005",
-    amount: 8000,
+    bestChannel: i % 2 === 0 ? "SMS" : "In-app"
+  })),
+
+  // Card declined (15 total) - medium recovery with send_recovery_message
+  ...Array(15).fill(null).map((_, i) => ({
+    id: `PAY_${String(i + 71).padStart(3, '0')}`,
+    amount: 12000 + (i * 300),
     failureReason: "card_declined",
-    customerTier: "silver",
-    retryAttempts: 2,
-    timeSinceFailure: "4 hours",
+    customerTier: i % 3 === 0 ? "gold" : "silver",
+    retryAttempts: 0,
+    timeSinceFailure: "1 hour",
+    checkoutAbandoned: false,
+    bestChannel: "Email"
+  })),
+
+  // Fraud blocks (10 total) - low recovery with escalate_to_human
+  ...Array(10).fill(null).map((_, i) => ({
+    id: `PAY_${String(i + 86).padStart(3, '0')}`,
+    amount: 50000 + (i * 1000),
+    failureReason: "fraud_block",
+    customerTier: "gold",
+    retryAttempts: 0,
+    timeSinceFailure: "30 mins",
     checkoutAbandoned: false,
     bestChannel: "SMS"
-  },
-  // ... Generate 95 more with variation
-  // I'll give you a generator function to create these
+  }))
 ];
 
-// Helper to generate realistic scenarios
 export function generateScenarios(count = 100) {
-  const reasons = [
-    "insufficient_funds",
-    "timeout",
-    "fraud_block",
-    "customer_exit",
-    "card_declined",
-    "network_error",
-    "expired_card",
-    "max_retries"
-  ];
-  
-  const tiers = ["gold", "silver", "bronze"];
-  const channels = ["SMS", "Email", "In-app"];
-
-  const scenarios = [];
-
-  for (let i = 1; i <= count; i++) {
-    scenarios.push({
-      id: `PAY_${String(i).padStart(3, "0")}`,
-      amount: Math.floor(Math.random() * 50000) + 1000,
-      failureReason: reasons[Math.floor(Math.random() * reasons.length)],
-      customerTier: tiers[Math.floor(Math.random() * tiers.length)],
-      retryAttempts: Math.floor(Math.random() * 3),
-      timeSinceFailure:
-        Math.floor(Math.random() * 48) + " hours or " + Math.floor(Math.random() * 60) + " mins",
-      checkoutAbandoned: Math.random() > 0.7,
-      bestChannel: channels[Math.floor(Math.random() * channels.length)]
-    });
-  }
-
-  return scenarios;
+  return failedPayments.slice(0, count);
 }

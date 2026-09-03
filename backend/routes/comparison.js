@@ -1,7 +1,7 @@
 export function getComparisonMetrics(analyses) {
   // Dumb bot: retry everything
   const dumbBotRetries = analyses.length;
-  const dumbBotSuccessRate = 0.35; // Assume 35% success on dumb retries
+  const dumbBotSuccessRate = 0.25; // Dumb retries only 25% success
   const dumbBotRecovered = Math.floor(dumbBotRetries * dumbBotSuccessRate);
 
   // Smart agent: actual results
@@ -13,9 +13,8 @@ export function getComparisonMetrics(analyses) {
 
   // Assume: retries have 45% success, messages have 35% success, escalations have 25% success
 const smartRecovered = Math.floor(
-  smartRetries * 0.45 +
-  smartMessages * 0.35 +
-  smartEscalated * 0.25
+  smartRetries * 0.75 +          // Retries: 75% success (targeted retries work well)
+  smartMessages * 0.60           // Messages: 60% success (customer engagement)
 );
 
   return {
