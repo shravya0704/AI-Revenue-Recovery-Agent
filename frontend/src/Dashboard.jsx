@@ -43,7 +43,7 @@ export default function Dashboard({ hideComparison = false }) {
   return (
     <div className="dashboard">
       <header className="header">
-        <h1>🤖 AI Revenue Recovery Agent</h1>
+        <h1>AI Revenue Recovery Agent</h1>
         <p>Real-time payment failure detection & recovery</p>
       </header>
 

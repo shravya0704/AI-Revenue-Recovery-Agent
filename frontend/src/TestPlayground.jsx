@@ -50,7 +50,7 @@ export default function TestPlayground() {
 
   return (
     <div className="test-playground">
-      <h2>🧪 Agent Test Playground</h2>
+      <h2>Agent Test Playground</h2>
       <p>Manually test the agent logic with realistic payment scenarios</p>
 
       <div className="test-container">
