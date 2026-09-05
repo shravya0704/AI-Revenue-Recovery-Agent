@@ -8,66 +8,6 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
-function getRootCauseAnalysis(failureReason) {
-  const causes = {
-    insufficient_funds: {
-      cause: "Customer Account Issue",
-      analysis: "Insufficient balance in customer's account",
-      severity: "low",
-      recoverable: true
-    },
-    card_declined: {
-      cause: "Card Issue",
-      analysis: "Card was declined by issuing bank (possible expired, blocked, or limit reached)",
-      severity: "medium",
-      recoverable: true
-    },
-    timeout: {
-      cause: "Network Issue",
-      analysis: "Network timeout - temporary connectivity problem",
-      severity: "low",
-      recoverable: true
-    },
-    fraud_block: {
-      cause: "Security Block",
-      analysis: "Bank's fraud detection system flagged transaction as suspicious",
-      severity: "high",
-      recoverable: false
-    },
-    customer_exit: {
-      cause: "User Behavior",
-      analysis: "Customer intentionally exited checkout before completing payment",
-      severity: "low",
-      recoverable: true
-    },
-    expired_card: {
-      cause: "Card Validity",
-      analysis: "Card has expired and is no longer valid",
-      severity: "medium",
-      recoverable: true
-    },
-    network_error: {
-      cause: "Network Issue",
-      analysis: "Network connectivity error during transaction",
-      severity: "low",
-      recoverable: true
-    },
-    max_retries: {
-      cause: "Max Retries Exceeded",
-      analysis: "Payment has already been retried maximum allowed times",
-      severity: "high",
-      recoverable: false
-    }
-  };
-
-  return causes[failureReason] || {
-    cause: "Unknown",
-    analysis: "Unable to determine root cause",
-    severity: "medium",
-    recoverable: true
-  };
-}
-
 function getHinglishMessage(failureReason, language = "English") {
   const messages = {
     insufficient_funds: {
@@ -104,35 +44,113 @@ function getHinglishMessage(failureReason, language = "English") {
 }
 
 export async function analyzePayment(paymentData) {
-  const decision = makeDecision(paymentData);
+  try {
+    const decision = await makeDecisionWithLLM(paymentData);
+    return {
+      paymentId: paymentData.id,
+      agentDecision: decision.action,
+      agentReasoning: decision.reasoning,
+      rootCause: decision.rootCause,
+      recoveryStrategy: decision.recoveryStrategy,
+      actionResult: await executeTool(decision.action, decision.params, paymentData),
+      lmm_used: true
+    };
+  } catch (error) {
+    console.error("LLM error, falling back to rules:", error.message);
+    const decision = makeDecisionWithRules(paymentData);
+    return {
+      paymentId: paymentData.id,
+      agentDecision: decision.action,
+      agentReasoning: decision.reasoning,
+      rootCause: decision.rootCause,
+      recoveryStrategy: decision.recoveryStrategy,
+      actionResult: await executeTool(decision.action, decision.params, paymentData),
+      llm_used: false,
+      fallback_reason: error.message
+    };
+  }
+}
+
+async function makeDecisionWithLLM(paymentData) {
+  const { failureReason, customerTier, retryAttempts, checkoutAbandoned } = paymentData;
+
+  const prompt = `You are a payment recovery agent. Analyze this failed payment and decide the recovery action.
+
+Payment Context:
+- Failure Reason: ${failureReason}
+- Customer Tier: ${customerTier}
+- Previous Retries: ${retryAttempts}
+- Checkout Abandoned: ${checkoutAbandoned}
+
+Constraints:
+- Max 3 retries per customer (stop if retryAttempts >= 3)
+- Never retry fraud blocks (escalate instead)
+- Fraud blocks need customer verification
+
+Decision Options:
+- retry_now: Immediate retry (good for timeouts, network errors)
+- retry_after: Schedule retry after 24 hours (good for insufficient funds)
+- send_recovery_message: Send SMS/Email reminder (good for cart abandonment)
+- escalate_to_human: Send to manual review (good for fraud, expired cards)
+
+Respond ONLY with valid JSON:
+{
+  "action": "retry_now|retry_after|send_recovery_message|escalate_to_human",
+  "reasoning": "Brief explanation of why this action",
+  "confidence": 0.0-1.0
+}`;
+
+  const response = await groq.chat.completions.create({
+    model: "llama-3.1-8b-instant",
+    max_tokens: 300,
+    temperature: 0.3,
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ]
+  });
+
+  const text = response.choices[0].message.content;
+  
+  // Extract JSON from response
+  let decision;
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    decision = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+  } catch (e) {
+    console.warn("JSON parse failed, using fallback");
+    return makeDecisionWithRules(paymentData);
+  }
+
+  const language = customerTier === "gold" ? "Hinglish" : "English";
+  const rootCause = getRootCauseAnalysis(failureReason);
 
   return {
-    paymentId: paymentData.id,
-    agentDecision: decision.action,
-    agentReasoning: decision.reasoning,
-    rootCause: decision.rootCause,
-    recoveryStrategy: decision.recoveryStrategy,
-    actionResult: await executeTool(decision.action, decision.params, paymentData)
+    action: decision.action || "escalate_to_human",
+    reasoning: decision.reasoning || "LLM decision",
+    rootCause: rootCause,
+    recoveryStrategy: mapActionToStrategy(decision.action),
+    params: mapActionToParams(decision.action, paymentData, language)
   };
 }
 
-function makeDecision(paymentData) {
+function makeDecisionWithRules(paymentData) {
   const { failureReason, customerTier, retryAttempts, checkoutAbandoned } = paymentData;
   const language = customerTier === "gold" ? "Hinglish" : "English";
   const rootCause = getRootCauseAnalysis(failureReason);
 
-  // Max retries rule
   if (retryAttempts >= 3) {
     return {
       action: "escalate_to_human",
       params: { reason: "Max retries reached" },
       reasoning: "Customer has been retried 3+ times. Escalating to manual review.",
-      rootCause: getRootCauseAnalysis("max_retries"),
-      recoveryStrategy: "Manual intervention required"
+      rootCause: rootCause,
+      recoveryStrategy: "Manual escalation"
     };
   }
 
-  // Checkout abandoned - send message first
   if (checkoutAbandoned) {
     return {
       action: "send_recovery_message",
@@ -141,13 +159,12 @@ function makeDecision(paymentData) {
         message: getHinglishMessage("customer_exit", language),
         language: language
       },
-      reasoning: "Customer abandoned checkout. Sending recovery message via preferred channel.",
+      reasoning: "Customer abandoned checkout. Sending recovery message.",
       rootCause: rootCause,
       recoveryStrategy: "Re-engagement message"
     };
   }
 
-  // Fraud block - escalate
   if (failureReason === "fraud_block") {
     return {
       action: "escalate_to_human",
@@ -158,7 +175,6 @@ function makeDecision(paymentData) {
     };
   }
 
-  // Timeout - retry immediately
   if (failureReason === "timeout" || failureReason === "network_error") {
     return {
       action: "retry_now",
@@ -169,21 +185,16 @@ function makeDecision(paymentData) {
     };
   }
 
-  // Insufficient funds - wait and retry
   if (failureReason === "insufficient_funds") {
     return {
       action: "retry_after",
-      params: {
-        hours: 24,
-        reason: "Give customer time to add funds."
-      },
-      reasoning: "Insufficient funds. Waiting 24 hours gives customer time to top up account.",
+      params: { hours: 24, reason: "Give customer time to add funds." },
+      reasoning: "Insufficient funds. Waiting 24 hours gives customer time to top up.",
       rootCause: rootCause,
       recoveryStrategy: "Delayed retry"
     };
   }
 
-  // Card declined - send message
   if (failureReason === "card_declined") {
     return {
       action: "send_recovery_message",
@@ -198,41 +209,88 @@ function makeDecision(paymentData) {
     };
   }
 
-  // Expired card - escalate
-  if (failureReason === "expired_card") {
-    return {
-      action: "escalate_to_human",
-      params: { reason: "Card expired. Customer action required." },
-      reasoning: "Expired card requires customer to update payment method.",
-      rootCause: rootCause,
-      recoveryStrategy: "Escalation + manual follow-up"
-    };
-  }
-
-  // Customer exit - send recovery
-  if (failureReason === "customer_exit") {
-    return {
-      action: "send_recovery_message",
-      params: {
-        channel: paymentData.bestChannel,
-        message: getHinglishMessage("customer_exit", language),
-        language: language
-      },
-      reasoning: "Customer exited. Sending friendly reminder to complete payment.",
-      rootCause: rootCause,
-      recoveryStrategy: "Re-engagement message"
-    };
-  }
-
-  // Default
   return {
     action: "retry_after",
-    params: {
-      hours: 24,
-      reason: "Standard retry protocol."
-    },
-    reasoning: `Unknown failure reason: ${failureReason}. Scheduling standard retry.`,
+    params: { hours: 24, reason: "Standard retry protocol." },
+    reasoning: "Unknown failure. Scheduling standard retry.",
     rootCause: rootCause,
     recoveryStrategy: "Delayed retry"
   };
+}
+
+function getRootCauseAnalysis(failureReason) {
+  const causes = {
+    insufficient_funds: {
+      cause: "Customer Account Issue",
+      analysis: "Insufficient balance in customer's account",
+      severity: "low",
+      recoverable: true
+    },
+    card_declined: {
+      cause: "Card Issue",
+      analysis: "Card was declined by issuing bank",
+      severity: "medium",
+      recoverable: true
+    },
+    timeout: {
+      cause: "Network Issue",
+      analysis: "Network timeout - temporary connectivity problem",
+      severity: "low",
+      recoverable: true
+    },
+    fraud_block: {
+      cause: "Security Block",
+      analysis: "Bank's fraud detection flagged transaction",
+      severity: "high",
+      recoverable: false
+    },
+    customer_exit: {
+      cause: "User Behavior",
+      analysis: "Customer intentionally exited checkout",
+      severity: "low",
+      recoverable: true
+    },
+    expired_card: {
+      cause: "Card Validity",
+      analysis: "Card has expired",
+      severity: "medium",
+      recoverable: true
+    },
+    network_error: {
+      cause: "Network Issue",
+      analysis: "Network connectivity error",
+      severity: "low",
+      recoverable: true
+    }
+  };
+  return causes[failureReason] || { cause: "Unknown", analysis: "Unable to determine", severity: "medium", recoverable: true };
+}
+
+function mapActionToStrategy(action) {
+  const strategies = {
+    retry_now: "Immediate retry",
+    retry_after: "Delayed retry (24 hours)",
+    send_recovery_message: "Customer notification",
+    escalate_to_human: "Manual escalation"
+  };
+  return strategies[action] || "Standard handling";
+}
+
+function mapActionToParams(action, paymentData, language) {
+  switch (action) {
+    case "retry_now":
+      return { reason: "Immediate retry" };
+    case "retry_after":
+      return { hours: 24, reason: "Scheduled retry" };
+    case "send_recovery_message":
+      return {
+        channel: paymentData.bestChannel,
+        message: getHinglishMessage("customer_exit", language),
+        language: language
+      };
+    case "escalate_to_human":
+      return { reason: "Manual review required" };
+    default:
+      return { reason: "Default handling" };
+  }
 }
